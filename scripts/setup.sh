@@ -2,14 +2,9 @@
 
 echo "Setting up experimental environment"
 echo
-echo "**********************************************"
-echo "** Note: this wouldn't be necessary if      **"
-echo "** I was using a saved disk image snapshot! **"
-echo "**********************************************"
-echo
 
-PACKAGES=(stress-ng)
+sudo apt update -y
+sudo apt install -y stress-ng python3-swiftclient "linux-tools-$(uname -r)"
+sudo modprobe intel_rapl_msr
 
-sudo dnf makecache -y
-sudo dnf install -y "${PACKAGES[@]}"
 

@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
 
 task_time_s="${1:-30}"
-sample_rate_s="${2:-0.5}"
-interval_time_s="${3:-5}"
 num_cores=$(nproc)
 
 echo "Task time: ${task_time_s}s"
-echo "Sample rate: ${sample_rate_s}s"
-echo "Interval time: ${interval_time_s}s"
 echo "Number of cores: ${num_cores}"
 
 echo "Cleaning output directory ..."
 rm -rf ./out && mkdir ./out
 
-prefix="./out/run-$(date +%Y%m%d.%H%M.%S)"
+output="./out/run-$(date +%Y%m%d.%H%M.%S).out"
 
 run_task() {
-  timeout "$task_time_s" etrace2 -i "$sample_rate_s" "$@"
+  sudo perf stat -e power/energy-pkg/,power/energy-ram/ "$@"
 }
 
 echo
@@ -24,27 +20,35 @@ echo "************************"
 echo "** Running at 25% ... **"
 echo "************************"
 
-run_task stress-ng --cpu $((num_cores/4)) >"$prefix-pct25.out" 2>/dev/null
+run_task stress-ng --cpu $((num_cores/4)) --timeout "$task_time_s"s 2>&1 | grep -P -o '[\d\.]+.Joules.+' | cut -d ' ' -f 1,3 | sed -e "s/.*/25 &/" >> "$output"
 
 echo
 echo "************************"
 echo "** Running at 50% ... **"
 echo "************************"
 
-run_task stress-ng --cpu $((num_cores/2)) >"$prefix-pct50.out" 2>/dev/null
+run_task stress-ng --cpu $((num_cores/2)) --timeout "$task_time_s"s 2>&1 | grep -P -o '[\d\.]+.Joules.+' | cut -d ' ' -f 1,3  | sed -e "s/.*/50 &/" >> "$output"
 
 echo
 echo "************************"
 echo "** Running at 100% .. **"
 echo "************************"
 
-run_task stress-ng --cpu $num_cores >"$prefix-pct100.out" 2>/dev/null
+run_task stress-ng --cpu $num_cores --timeout "$task_time_s"s 2>&1 | grep -P -o '[\d\.]+.Joules.+' | cut -d ' ' -f 1,3 | sed -e "s/.*/100 &/" >> "$output"
+
+# This file is loaded automatically onto nodes
+source ~/openrc
+
+today=$(date '+%Y-%m-%d')
+bucket_name="bare_metal_experiment_pattern_data_$today"
 
 echo
-echo "Creating archive of results ...",
+echo "Uploading results to the object store container $bucket_name"
+# Create the bucket if it doesn't exist
+swift post $bucket_name
 
-tarball="$prefix.tar.gz"
-tar -czf "$tarball" $prefix-*.out && cp "$tarball" ./out/latest.tar.gz \
- && echo "Finished. Tarball located at $tarball (and ./out/latest.tar.gz)" \
- || echo "Failed to write tarball to $tarball!"
+for file in ./out/*; do
+	echo "Uploading $file"
+	swift upload $bucket_name $file --object-name $(basename $file)
+done
 
